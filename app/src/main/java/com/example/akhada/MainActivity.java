@@ -3,6 +3,9 @@ package com.example.akhada;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.os.Bundle;
+import android.view.View;
+
+import com.example.akhada.core.GameView;
 
 public class MainActivity extends AppCompatActivity {
 

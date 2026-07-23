@@ -1,4 +1,6 @@
 package com.example.akhada.core;
+import android.graphics.Canvas;
+import android.view.SurfaceHolder;
 
 public class GameLoop extends Thread {
     private final SurfaceHolder surfaceHolder;
