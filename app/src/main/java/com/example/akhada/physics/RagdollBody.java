@@ -15,7 +15,10 @@ public class RagdollBody {
     public List<AngleConstraint> angleConstraints = new ArrayList<>();
 
     // originX/originY = roughly where the hips/center of mass starts
-    public RagdollBody(float originX, float originY) {
+    public RagdollBody(float originX, float originY,  int ownerId) {
+        for (PointMass p : points) {
+            p.ownerId = ownerId;
+        }
         // Segment lengths (px) — tune these to your sprite scale later
         float headLen = 22f, neckLen = 16f, torsoLen = 46f;
         float upperArmLen = 34f, forearmLen = 30f;

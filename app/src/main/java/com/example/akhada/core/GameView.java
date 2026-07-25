@@ -4,10 +4,14 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 
+import com.example.akhada.combat.CombatSystem;
+import com.example.akhada.entity.components.FighterState;
 import com.example.akhada.physics.AngleConstraint;
+import com.example.akhada.physics.BalanceController;
 import com.example.akhada.physics.Constraint;
 import com.example.akhada.physics.PhysicsWorld;
 import com.example.akhada.physics.PointMass;
@@ -17,7 +21,11 @@ import com.example.akhada.physics.Vec2;
 public class GameView extends SurfaceView implements SurfaceHolder.Callback {
     private GameLoop gameLoop;
     private PhysicsWorld world;
-    private RagdollBody ragdoll;
+    private RagdollBody fighterA, fighterB;
+    //private RagdollBody ragdoll;
+    private BalanceController balanceA, balanceB;
+    private FighterState stateA = FighterState.STANDING;
+    private FighterState stateB = FighterState.STANDING;
 
     //private PointMass shoulder, elbow, hand;
     //private PointMass pointA, pointB;
@@ -29,8 +37,15 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
         super(context);
         getHolder().addCallback(this);
         world = new PhysicsWorld();
-        ragdoll = new RagdollBody(300, 150); // drops from up high, nothing pinned = full ragdoll fall
-        ragdoll.addTo(world);
+        fighterA = new RagdollBody(250, 150 , 0);
+        fighterB = new RagdollBody(450, 150, 1);
+        fighterA.addTo(world);
+        fighterB.addTo(world);
+        float groundY = 800f; // will be reset properly in surfaceChanged
+        balanceA = new BalanceController(fighterA, groundY, 90f);
+        balanceB = new BalanceController(fighterB, groundY, 90f);
+//        ragdoll = new RagdollBody(300, 150); // drops from up high, nothing pinned = full ragdoll fall
+//        ragdoll.addTo(world);
 //        shoulder = new PointMass(300, 100);
 //        elbow    = new PointMass(340, 140); // 40px down-right from shoulder
 //        hand     = new PointMass(380, 180); // 40px down-right from elbow
@@ -79,11 +94,39 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
 
     @Override public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) {
         world.setBounds(0, 0, w, h);
+        balanceA = new BalanceController(fighterA, h, 90f);
+        balanceB = new BalanceController(fighterB, h, 90f);
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        if (event.getAction() == MotionEvent.ACTION_DOWN) {
+            PointMass[] targetPoints = fighterB.points.toArray(new PointMass[0]);
+            float impulseLanded = CombatSystem.tryPunch(fighterA.rightHand, targetPoints, 60f, 20f);
+
+            if (impulseLanded >= CombatSystem.KNOCKDOWN_THRESHOLD) {
+                stateB = FighterState.RAGDOLL; // hit was hard enough — go limp
+            }
+            // below threshold: stateB stays STANDING, balance correction
+            // will visibly absorb/resist the shove — looks like a stagger
+        }
+        return true;
+//        if (event.getAction() == MotionEvent.ACTION_DOWN) {
+//            // simplest possible test: A's right hand punches toward B's points
+//            PointMass[] targetPoints = fighterB.points.toArray(new PointMass[0]);
+//            CombatSystem.tryPunch(fighterA.rightHand, targetPoints, 60f, 25f);
+//        }
+//        return true;
     }
 
     //public void update() { /* engine.update() goes here later */ }
     public void update() {
-        world.step(1f / 60f);
+        java.util.List<BalanceController> active = new java.util.ArrayList<>();
+        if (stateA == FighterState.STANDING) active.add(balanceA);
+        if (stateB == FighterState.STANDING) active.add(balanceB);
+
+        world.step(1f / 60f, active);
+        //world.step(1f / 60f);
 //        float dt = 1f / 60f;
 //        testPoint.integrate(dt, gravity);
 //        testPoint.constrainToBounds(0, 0, getWidth(), getHeight(), 0.6f);
@@ -95,35 +138,64 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
 //    }
 public void render(Canvas canvas) {
     canvas.drawColor(Color.rgb(139, 69, 19));
-
-    Paint bonePaint = new Paint();
-    bonePaint.setColor(Color.WHITE);
-    bonePaint.setStrokeWidth(8f);
-
-    Paint jointPaint = new Paint();
-    jointPaint.setColor(Color.YELLOW);
-
-    // draw every bone
-    drawBone(canvas, bonePaint, ragdoll.head, ragdoll.chest);
-    drawBone(canvas, bonePaint, ragdoll.chest, ragdoll.hips);
-    drawBone(canvas, bonePaint, ragdoll.chest, ragdoll.leftShoulder);
-    drawBone(canvas, bonePaint, ragdoll.chest, ragdoll.rightShoulder);
-    drawBone(canvas, bonePaint, ragdoll.leftShoulder, ragdoll.leftElbow);
-    drawBone(canvas, bonePaint, ragdoll.leftElbow, ragdoll.leftHand);
-    drawBone(canvas, bonePaint, ragdoll.rightShoulder, ragdoll.rightElbow);
-    drawBone(canvas, bonePaint, ragdoll.rightElbow, ragdoll.rightHand);
-    drawBone(canvas, bonePaint, ragdoll.hips, ragdoll.leftHip);
-    drawBone(canvas, bonePaint, ragdoll.hips, ragdoll.rightHip);
-    drawBone(canvas, bonePaint, ragdoll.leftHip, ragdoll.leftKnee);
-    drawBone(canvas, bonePaint, ragdoll.leftKnee, ragdoll.leftFoot);
-    drawBone(canvas, bonePaint, ragdoll.rightHip, ragdoll.rightKnee);
-    drawBone(canvas, bonePaint, ragdoll.rightKnee, ragdoll.rightFoot);
-
-    for (PointMass p : ragdoll.points) {
-        canvas.drawCircle(p.pos.x, p.pos.y, 10f, jointPaint);
-    }
+    drawRagdoll(canvas, fighterA, Color.CYAN);
+    drawRagdoll(canvas, fighterB, Color.MAGENTA);
+//    canvas.drawColor(Color.rgb(139, 69, 19));
+//
+//    Paint bonePaint = new Paint();
+//    bonePaint.setColor(Color.WHITE);
+//    bonePaint.setStrokeWidth(8f);
+//
+//    Paint jointPaint = new Paint();
+//    jointPaint.setColor(Color.YELLOW);
+//
+//    // draw every bone
+//    drawBone(canvas, bonePaint, ragdoll.head, ragdoll.chest);
+//    drawBone(canvas, bonePaint, ragdoll.chest, ragdoll.hips);
+//    drawBone(canvas, bonePaint, ragdoll.chest, ragdoll.leftShoulder);
+//    drawBone(canvas, bonePaint, ragdoll.chest, ragdoll.rightShoulder);
+//    drawBone(canvas, bonePaint, ragdoll.leftShoulder, ragdoll.leftElbow);
+//    drawBone(canvas, bonePaint, ragdoll.leftElbow, ragdoll.leftHand);
+//    drawBone(canvas, bonePaint, ragdoll.rightShoulder, ragdoll.rightElbow);
+//    drawBone(canvas, bonePaint, ragdoll.rightElbow, ragdoll.rightHand);
+//    drawBone(canvas, bonePaint, ragdoll.hips, ragdoll.leftHip);
+//    drawBone(canvas, bonePaint, ragdoll.hips, ragdoll.rightHip);
+//    drawBone(canvas, bonePaint, ragdoll.leftHip, ragdoll.leftKnee);
+//    drawBone(canvas, bonePaint, ragdoll.leftKnee, ragdoll.leftFoot);
+//    drawBone(canvas, bonePaint, ragdoll.rightHip, ragdoll.rightKnee);
+//    drawBone(canvas, bonePaint, ragdoll.rightKnee, ragdoll.rightFoot);
+//
+//    for (PointMass p : ragdoll.points) {
+//        canvas.drawCircle(p.pos.x, p.pos.y, 10f, jointPaint);
+//    }
 }
 
+    private void drawRagdoll(Canvas canvas, RagdollBody body, int jointColor) {
+        Paint bonePaint = new Paint();
+        bonePaint.setColor(Color.WHITE);
+        bonePaint.setStrokeWidth(8f);
+
+        drawBone(canvas, bonePaint, body.head, body.chest);
+        drawBone(canvas, bonePaint, body.chest, body.hips);
+        drawBone(canvas, bonePaint, body.chest, body.leftShoulder);
+        drawBone(canvas, bonePaint, body.chest, body.rightShoulder);
+        drawBone(canvas, bonePaint, body.leftShoulder, body.leftElbow);
+        drawBone(canvas, bonePaint, body.leftElbow, body.leftHand);
+        drawBone(canvas, bonePaint, body.rightShoulder, body.rightElbow);
+        drawBone(canvas, bonePaint, body.rightElbow, body.rightHand);
+        drawBone(canvas, bonePaint, body.hips, body.leftHip);
+        drawBone(canvas, bonePaint, body.hips, body.rightHip);
+        drawBone(canvas, bonePaint, body.leftHip, body.leftKnee);
+        drawBone(canvas, bonePaint, body.leftKnee, body.leftFoot);
+        drawBone(canvas, bonePaint, body.rightHip, body.rightKnee);
+        drawBone(canvas, bonePaint, body.rightKnee, body.rightFoot);
+
+        Paint jointPaint = new Paint();
+        jointPaint.setColor(jointColor);
+        for (PointMass p : body.points) {
+            canvas.drawCircle(p.pos.x, p.pos.y, 10f, jointPaint);
+        }
+    }
     private void drawBone(Canvas canvas, Paint paint, PointMass a, PointMass b) {
         canvas.drawLine(a.pos.x, a.pos.y, b.pos.x, b.pos.y, paint);
     }
