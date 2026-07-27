@@ -7,13 +7,13 @@ import org.junit.Test;
 public class RagdollBodyTest {
     @Test
     public void construction_createsAllFourteenJoints() {
-        RagdollBody body = new RagdollBody(300, 150);
+        RagdollBody body = new RagdollBody(300, 150,0);
         assertEquals(15, body.points.size());
     }
 
     @Test
     public void addTo_registersAllPointsAndConstraints() {
-        RagdollBody body = new RagdollBody(300, 150);
+        RagdollBody body = new RagdollBody(300, 150,0);
         PhysicsWorld world = new PhysicsWorld();
         body.addTo(world);
 
@@ -24,7 +24,7 @@ public class RagdollBodyTest {
 
     @Test
     public void step_keepsAllBoneLengthsWithinTolerance() {
-        RagdollBody body = new RagdollBody(300, 150);
+        RagdollBody body = new RagdollBody(300, 150,0);
         PhysicsWorld world = new PhysicsWorld();
         world.setBounds(0, 0, 1000, 1000);
         body.addTo(world);

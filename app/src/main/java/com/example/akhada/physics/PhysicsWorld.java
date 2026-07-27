@@ -79,7 +79,7 @@ public class PhysicsWorld {
             }
         }
     }
-    public void step(float dt, java.util.List<BalanceController> activeBalancers) {
+    public void step(float dt, java.util.List<BalanceController> activeBalancers , java.util.List<MovementController> activeMovers) {
         for (PointMass p : points) {
             p.integrate(dt, gravity);
         }
@@ -98,9 +98,10 @@ public class PhysicsWorld {
             for (BalanceController bc : activeBalancers) {
                 bc.applyBalance();
             }
+            for (MovementController mc : activeMovers) mc.applyMovement();
 
             for (PointMass p : points) {
-                p.constrainToBounds(minX, minY, maxX, maxY, 0.6f);
+                p.constrainToBounds(minX, minY, maxX, maxY, 0.2f);
             }
         }
     }

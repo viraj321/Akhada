@@ -16,6 +16,8 @@ public class PointMass {
         if (pinned) return;
 
         Vec2 velocity = pos.subtract(prevPos);
+        float damping = 0.99f;
+        velocity = velocity.scale(damping);
 
         float maxSpeed = 40f; // tune: max pixels per fixed timestep
         float speed = velocity.length();
@@ -37,6 +39,8 @@ public class PointMass {
         if (pos.y > maxY) {
             pos.y = maxY;
             prevPos.y = pos.y + velocity.y * bounce;
+            float friction = 0.7f;
+            prevPos.x = pos.x + velocity.x * (1f - friction);
         }
         if (pos.y < minY) {           // NEW — ceiling was missing entirely
             pos.y = minY;
