@@ -9,6 +9,7 @@ import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 
+import com.example.akhada.ai.AIController;
 import com.example.akhada.combat.CombatSystem;
 import com.example.akhada.entity.components.FighterState;
 import com.example.akhada.entity.components.HealthComponent;
@@ -18,6 +19,7 @@ import com.example.akhada.physics.Constraint;
 import com.example.akhada.physics.MovementController;
 import com.example.akhada.physics.PhysicsWorld;
 import com.example.akhada.physics.PointMass;
+import com.example.akhada.physics.PoseController;
 import com.example.akhada.physics.RagdollBody;
 import com.example.akhada.physics.Vec2;
 
@@ -40,20 +42,40 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
     private MovementController moverA;
     private RectF leftButtonRect, rightButtonRect;
     private float inputDirection = 0f;
+
+    private MovementController moverB;
+    private AIController aiB;
+    private PoseController poseA, poseB;
+    private float ragdollTimerA = 0f;
     public GameView(Context context) {
         super(context);
         getHolder().addCallback(this);
         world = new PhysicsWorld();
-        fighterA = new RagdollBody(250, 150 , 0);
-        fighterB = new RagdollBody(450, 150, 1);
+        world.pointRadius = 12f * 1.4f;
+        float scale = 1.4f;
+        fighterA = new RagdollBody(250, 150 , 0, scale);
+        fighterB = new RagdollBody(450, 150, 1, scale);
+
         fighterA.addTo(world);
         fighterB.addTo(world);
+        poseA = new PoseController(fighterA);
+        poseB = new PoseController(fighterB);
+
         healthA = new HealthComponent(100f);
         healthB = new HealthComponent(100f);
         float groundY = 800f; // will be reset properly in surfaceChanged
-        balanceA = new BalanceController(fighterA, groundY, 90f);
-        balanceB = new BalanceController(fighterB, groundY, 90f);
+        balanceA = new BalanceController(fighterA, groundY, 115f);
+        balanceB = new BalanceController(fighterB, groundY, 115f);
+        //moverA = new MovementController(fighterA);
         moverA = new MovementController(fighterA);
+        moverB = new MovementController(fighterB);
+        aiB = new AIController(fighterB, fighterA, moverB, healthA, scale);
+
+        aiB.setOnHitLandedListener(impulseMagnitude -> {
+            if (impulseMagnitude >= CombatSystem.KNOCKDOWN_THRESHOLD) {
+                stateA = FighterState.RAGDOLL;
+            }
+        });
 //        ragdoll = new RagdollBody(300, 150); // drops from up high, nothing pinned = full ragdoll fall
 //        ragdoll.addTo(world);
 //        shoulder = new PointMass(300, 100);
@@ -110,7 +132,9 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
         leftButtonRect  = new RectF(40, h - 180, 160, h - 60);
         rightButtonRect = new RectF(180, h - 180, 300, h - 60);
     }
-
+    private float retractTimerA = 0f;
+    private static final float RETRACT_DURATION = 0.3f;
+    private static final float RETRACT_STRENGTH = 0.15f;
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         int action = event.getActionMasked();
@@ -124,24 +148,72 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
             } else if (rightButtonRect.contains(x, y)) {
                 inputDirection = 1f;
             } else if (action == MotionEvent.ACTION_DOWN) {
-                // tap elsewhere on screen = punch, same as before
-                if (!healthB.isDead()) {
+                // NEW: guard — no punching while ragdolled or dead
+                if (stateA == FighterState.STANDING && !healthA.isDead() && !healthB.isDead()) {
+                    float scale = 1.4f;
                     PointMass[] targetPoints = fighterB.points.toArray(new PointMass[0]);
-                    CombatSystem.HitResult result = CombatSystem.tryPunch(fighterA.rightHand, targetPoints, 60f, 35f);
+
+                    fighterA.rightHand.collisionImmune = true;
+                    CombatSystem.HitResult result = CombatSystem.tryPunch(fighterA.rightHand, targetPoints, 60f * scale, 8f);
                     if (result.landed) {
                         healthB.applyDamage(result.damage);
-                        if (result.impulseMagnitude >= CombatSystem.KNOCKDOWN_THRESHOLD || healthB.isDead()) {
+                        aiB.onHitReceived();
+                        if (result.impulseMagnitude >= CombatSystem.KNOCKDOWN_THRESHOLD) {
                             stateB = FighterState.RAGDOLL;
                         }
                     }
+                    retractTimerA = RETRACT_DURATION;
                 }
             }
         } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-            inputDirection = 0f; // stop moving when finger lifts
+            inputDirection = 0f;
         }
 
         moverA.setDirection(inputDirection);
         return true;
+    }
+    private void retractHandA() {
+        if (retractTimerA <= 0f) {
+            fighterA.rightHand.collisionImmune = false;
+            return;
+        }
+        retractTimerA -= 1f / 60f;
+
+        Vec2 toShoulder = fighterA.rightShoulder.pos.subtract(fighterA.rightHand.pos);
+        Vec2 pull = toShoulder.scale(RETRACT_STRENGTH);
+        fighterA.rightHand.pos = fighterA.rightHand.pos.add(pull);
+        fighterA.rightHand.prevPos = fighterA.rightHand.prevPos.add(pull.scale(0.3f));
+    }
+//        int action = event.getActionMasked();
+//
+//        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
+//            float x = event.getX();
+//            float y = event.getY();
+//
+//            if (leftButtonRect.contains(x, y)) {
+//                inputDirection = -1f;
+//            } else if (rightButtonRect.contains(x, y)) {
+//                inputDirection = 1f;
+//            } else if (action == MotionEvent.ACTION_DOWN) {
+//                // tap elsewhere on screen = punch, same as before
+//                if (!healthB.isDead()) {
+//                    PointMass[] targetPoints = fighterB.points.toArray(new PointMass[0]);
+//                    CombatSystem.HitResult result = CombatSystem.tryPunch(fighterA.rightHand, targetPoints, 60f, 18f);
+//                    if (result.landed) {
+//                        healthB.applyDamage(result.damage);
+//                        aiB.onHitReceived();
+//                        if (result.impulseMagnitude >= CombatSystem.KNOCKDOWN_THRESHOLD || healthB.isDead()) {
+//                            stateB = FighterState.RAGDOLL;
+//                        }
+//                    }
+//                }
+//            }
+//        } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+//            inputDirection = 0f; // stop moving when finger lifts
+//        }
+//
+//        moverA.setDirection(inputDirection);
+//        return true;
 //        if (event.getAction() == MotionEvent.ACTION_DOWN) {
 //            if (healthB.isDead()) return true; // no more hits needed once knocked out
 //
@@ -174,18 +246,60 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
 //            CombatSystem.tryPunch(fighterA.rightHand, targetPoints, 60f, 25f);
 //        }
 //        return true;
-    }
 
+    private float ragdollTimerB = 0f;
+    private static final float RECOVERY_TIME = 2.0f;
     //public void update() { /* engine.update() goes here later */ }
-    public void update() {
-        java.util.List<BalanceController> activeBalance = new java.util.ArrayList<>();
-        if (stateA == FighterState.STANDING) activeBalance.add(balanceA);
-        if (stateB == FighterState.STANDING && !healthB.isDead()) activeBalance.add(balanceB);
 
+    private float startupTimer = 0f;
+    private static final float BALANCE_STARTUP_DELAY = 0.6f;
+    public void update() {
+
+        float dt = 1f / 60f;
+        startupTimer += dt;
+        retractHandA();
+        // NEW: recovery logic
+        if (stateB == FighterState.RAGDOLL) {
+            ragdollTimerB += dt;
+            if (ragdollTimerB >= RECOVERY_TIME && !healthB.isDead()) {
+                stateB = FighterState.STANDING;
+                ragdollTimerB = 0f;
+
+                // IMPORTANT: re-anchor hips near current position before balance
+                // kicks back in — otherwise it'll try to snap violently from
+                // wherever it landed back to standing height in one frame
+                recenterBalanceTarget(balanceB, fighterB);
+            }
+        } else {
+            ragdollTimerB = 0f;
+        }
+
+        if (stateA == FighterState.RAGDOLL) {
+            ragdollTimerA += dt;
+            if (ragdollTimerA >= RECOVERY_TIME && !healthA.isDead()) {
+                stateA = FighterState.STANDING;
+                ragdollTimerA = 0f;
+            }
+        } else {
+            ragdollTimerA = 0f;
+        }
+
+
+        java.util.List<BalanceController> activeBalance = new java.util.ArrayList<>();
+        boolean balanceReady = startupTimer >= BALANCE_STARTUP_DELAY;
+        if (stateA == FighterState.STANDING && !healthA.isDead()){ activeBalance.add(balanceA);
+            poseA.applyIdleStance();}
+        if (stateB == FighterState.STANDING && !healthB.isDead()) {activeBalance.add(balanceB);
+            poseB.applyIdleStance();}
+        if (stateB == FighterState.STANDING && !healthB.isDead()) {
+            aiB.update(1f / 60f);
+        }
         java.util.List<MovementController> activeMovement = new java.util.ArrayList<>();
-        if (stateA == FighterState.STANDING) activeMovement.add(moverA);
+        if (stateA == FighterState.STANDING && !healthA.isDead()) activeMovement.add(moverA);
+        if (stateB == FighterState.STANDING && !healthB.isDead()) activeMovement.add(moverB);
 
         world.step(1f / 60f, activeBalance, activeMovement);
+
 //        java.util.List<BalanceController> active = new java.util.ArrayList<>();
 //        if (stateA == FighterState.STANDING) active.add(balanceA);
 //        if (stateB == FighterState.STANDING && !healthB.isDead()) active.add(balanceB);
@@ -201,6 +315,10 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
 //        float dt = 1f / 60f;
 //        testPoint.integrate(dt, gravity);
 //        testPoint.constrainToBounds(0, 0, getWidth(), getHeight(), 0.6f);
+    }
+    private void recenterBalanceTarget(BalanceController balance, RagdollBody body) {
+        // no-op for now — placeholder in case you want a "getting up" animation
+        // or a temporary invincibility window here later
     }
 
 
@@ -280,7 +398,7 @@ public void render(Canvas canvas) {
         Paint jointPaint = new Paint();
         jointPaint.setColor(jointColor);
         for (PointMass p : body.points) {
-            canvas.drawCircle(p.pos.x, p.pos.y, 10f, jointPaint);
+            canvas.drawCircle(p.pos.x, p.pos.y, 10f * 1.4f, jointPaint);
         }
     }
     private void drawBone(Canvas canvas, Paint paint, PointMass a, PointMass b) {

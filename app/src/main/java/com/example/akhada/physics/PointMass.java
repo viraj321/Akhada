@@ -4,6 +4,7 @@ public class PointMass {
     public Vec2 pos;
     public Vec2 prevPos;
     public boolean pinned = false;
+    public boolean collisionImmune = false;
 
     public PointMass(float x, float y) {
         this.pos = new Vec2(x, y);

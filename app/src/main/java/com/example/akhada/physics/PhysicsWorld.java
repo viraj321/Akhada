@@ -73,9 +73,18 @@ public class PhysicsWorld {
 
                 float overlap = minDist - dist;
                 Vec2 pushDir = delta.scale(1f / dist);
-                Vec2 correction = pushDir.scale(overlap * 0.5f);
-                if (!p1.pinned) p1.pos = p1.pos.subtract(correction);
-                if (!p2.pinned) p2.pos = p2.pos.add(correction);
+                if (p1.collisionImmune && !p2.collisionImmune) {
+                    if (!p2.pinned) p2.pos = p2.pos.add(pushDir.scale(overlap));
+                } else if (p2.collisionImmune && !p1.collisionImmune) {
+                    if (!p1.pinned) p1.pos = p1.pos.subtract(pushDir.scale(overlap));
+                } else {
+                    Vec2 correction = pushDir.scale(overlap * 0.5f);
+                    if (!p1.pinned) p1.pos = p1.pos.subtract(correction);
+                    if (!p2.pinned) p2.pos = p2.pos.add(correction);
+                }
+//                Vec2 correction = pushDir.scale(overlap * 0.5f);
+//                if (!p1.pinned) p1.pos = p1.pos.subtract(correction);
+//                if (!p2.pinned) p2.pos = p2.pos.add(correction);
             }
         }
     }
