@@ -27,11 +27,13 @@ public class AIController {
     private static final float STUN_DURATION = 0.5f;
     private static final float RETREAT_DURATION = 0.4f;
     private static final float AI_PUNCH_FORCE = 18f;
+    private float currentMoveDirection = 0f;
 
     public interface OnHitLandedListener {
         void onHitLanded(float impulseMagnitude);
     }
     private OnHitLandedListener hitListener;
+
 
     public AIController(RagdollBody self, RagdollBody target, MovementController mover, HealthComponent targetHealth, float scale) {
         this.self = self;
@@ -50,6 +52,14 @@ public class AIController {
         stateTimer = 0f;
         mover.setDirection(0f);
     }
+    private void setMoveDirection(float direction) {
+        currentMoveDirection = direction;
+        mover.setDirection(direction);
+    }
+
+    public float getCurrentMoveDirection() {
+        return currentMoveDirection;
+    }
 
     public void update(float dt) {
         retractHandIfNeeded();
@@ -60,7 +70,8 @@ public class AIController {
 
         switch (state) {
             case IDLE:
-                mover.setDirection(0f);
+               // mover.setDirection(0f);
+                setMoveDirection(0f);
                 if (absDistance <= attackRange) {
                     state = AIState.ATTACK;
                     stateTimer = 0f;
@@ -78,16 +89,19 @@ public class AIController {
 //                break;
 
             case APPROACH:
-                mover.setDirection(distance > 0 ? -1f : 1f);
+                //mover.setDirection(distance > 0 ? -1f : 1f);
+                setMoveDirection(distance > 0 ? -1f : 1f);
                 if (absDistance <= attackRange) {
                     state = AIState.ATTACK;
                     stateTimer = 0f;
-                    mover.setDirection(0f);
+                    //mover.setDirection(0f);
+                    setMoveDirection(0f);
                 }
                 break;
 
             case ATTACK:
-                mover.setDirection(0f);
+                //mover.setDirection(0f);
+                setMoveDirection(0f);
                 if (stateTimer >= ATTACK_COOLDOWN) {
                     throwPunch();
                     state = AIState.RETREAT;
@@ -98,7 +112,8 @@ public class AIController {
                 break;
 
             case RETREAT:
-                mover.setDirection(distance > 0 ? 1f : -1f);
+                //mover.setDirection(distance > 0 ? 1f : -1f);
+                setMoveDirection(distance > 0 ? 1f : -1f);
                 if (stateTimer >= RETREAT_DURATION) {
                     state = AIState.IDLE;
                     stateTimer = 0f;
@@ -106,7 +121,8 @@ public class AIController {
                 break;
 
             case STUNNED:
-                mover.setDirection(0f);
+                //mover.setDirection(0f);
+                setMoveDirection(0f);
                 if (stateTimer >= STUN_DURATION) {
                     state = AIState.IDLE;
                     stateTimer = 0f;

@@ -1,6 +1,8 @@
 package com.example.akhada.core;
 
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -9,6 +11,7 @@ import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 
+import com.example.akhada.R;
 import com.example.akhada.ai.AIController;
 import com.example.akhada.combat.CombatSystem;
 import com.example.akhada.entity.components.FighterState;
@@ -22,6 +25,8 @@ import com.example.akhada.physics.PointMass;
 import com.example.akhada.physics.PoseController;
 import com.example.akhada.physics.RagdollBody;
 import com.example.akhada.physics.Vec2;
+import com.example.akhada.render.ParallaxBackground;
+import com.example.akhada.render.RagdollRenderer;
 
 public class GameView extends SurfaceView implements SurfaceHolder.Callback {
     private GameLoop gameLoop;
@@ -47,9 +52,15 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
     private AIController aiB;
     private PoseController poseA, poseB;
     private float ragdollTimerA = 0f;
+    private ParallaxBackground background = new ParallaxBackground();
+    private Bitmap kurtaBitmap, dhotiBitmap, turbanBitmap, moustacheBitmap;
     public GameView(Context context) {
         super(context);
         getHolder().addCallback(this);
+        kurtaBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.kurta_shirt);
+        dhotiBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.dhoti_skirt);
+        turbanBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.turban);
+        moustacheBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.moustache);
         world = new PhysicsWorld();
         world.pointRadius = 12f * 1.4f;
         float scale = 1.4f;
@@ -288,12 +299,18 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
         java.util.List<BalanceController> activeBalance = new java.util.ArrayList<>();
         boolean balanceReady = startupTimer >= BALANCE_STARTUP_DELAY;
         if (stateA == FighterState.STANDING && !healthA.isDead()){ activeBalance.add(balanceA);
-            poseA.applyIdleStance();}
-        if (stateB == FighterState.STANDING && !healthB.isDead()) {activeBalance.add(balanceB);
-            poseB.applyIdleStance();}
+            //poseA.applyIdleStance();
+            poseA.applyWalkCycle(inputDirection);
+
+        }
         if (stateB == FighterState.STANDING && !healthB.isDead()) {
             aiB.update(1f / 60f);
         }
+        if (stateB == FighterState.STANDING && !healthB.isDead()) {activeBalance.add(balanceB);
+            //poseB.applyIdleStance();
+            poseB.applyWalkCycle(aiB.getCurrentMoveDirection());
+        }
+
         java.util.List<MovementController> activeMovement = new java.util.ArrayList<>();
         if (stateA == FighterState.STANDING && !healthA.isDead()) activeMovement.add(moverA);
         if (stateB == FighterState.STANDING && !healthB.isDead()) activeMovement.add(moverB);
@@ -325,17 +342,35 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
 //    public void render(Canvas canvas) {
 //        canvas.drawColor(Color.rgb(139, 69, 19)); // temp: dirt-brown akhada floor
 //    }
-public void render(Canvas canvas) {
-    canvas.drawColor(Color.rgb(139, 69, 19));
-    drawRagdoll(canvas, fighterA, Color.CYAN);
-    drawRagdoll(canvas, fighterB, Color.MAGENTA);
-    drawHealthBar(canvas, healthA, 50, 50, Color.CYAN);
-    drawHealthBar(canvas, healthB, getWidth() - 350, 50, Color.MAGENTA);
 
+   // private ParallaxBackground background = new ParallaxBackground();
+public void render(Canvas canvas) {
+    background.draw(canvas, getWidth(), getHeight());
+
+    drawRagdoll(canvas, fighterA, Color.rgb(198, 134, 89));
+    drawRagdoll(canvas, fighterB, Color.rgb(198, 134, 89));
+
+    drawHealthBar(canvas, healthA, 50, 50, Color.rgb(255, 153, 51));
+    drawHealthBar(canvas, healthB, getWidth() - 350, 50, Color.WHITE);
+
+    // movement buttons (from earlier input step)
     Paint buttonPaint = new Paint();
     buttonPaint.setColor(Color.argb(120, 255, 255, 255));
     canvas.drawRoundRect(leftButtonRect, 20f, 20f, buttonPaint);
     canvas.drawRoundRect(rightButtonRect, 20f, 20f, buttonPaint);
+//    background.draw(canvas, getWidth(), getHeight());
+////    canvas.drawColor(Color.rgb(139, 69, 19));
+//    drawRagdoll(canvas, fighterA, Color.rgb(198, 134, 89), Color.rgb(255, 153, 51));  // saffron dhoti
+//    drawRagdoll(canvas, fighterB, Color.rgb(198, 134, 89), Color.rgb(255, 255, 255)); // white dhoti
+////    drawRagdoll(canvas, fighterA, Color.CYAN);
+////    drawRagdoll(canvas, fighterB, Color.MAGENTA);
+//    drawHealthBar(canvas, healthA, 50, 50, Color.CYAN);
+//    drawHealthBar(canvas, healthB, getWidth() - 350, 50, Color.MAGENTA);
+//
+//    Paint buttonPaint = new Paint();
+//    buttonPaint.setColor(Color.argb(120, 255, 255, 255));
+//    canvas.drawRoundRect(leftButtonRect, 20f, 20f, buttonPaint);
+//    canvas.drawRoundRect(rightButtonRect, 20f, 20f, buttonPaint);
 //    canvas.drawColor(Color.rgb(139, 69, 19));
 //
 //    Paint bonePaint = new Paint();
@@ -375,33 +410,145 @@ public void render(Canvas canvas) {
         canvas.drawRect(x, y, x + 300 * health.getHealthFraction(), y + 30, fgPaint);
     }
 
-    private void drawRagdoll(Canvas canvas, RagdollBody body, int jointColor) {
-        Paint bonePaint = new Paint();
-        bonePaint.setColor(Color.WHITE);
-        bonePaint.setStrokeWidth(8f);
+    private void drawRagdoll(Canvas canvas, RagdollBody body, int skinColor) {
+        Paint limbPaint = new Paint();
+        limbPaint.setColor(skinColor);
+        limbPaint.setAntiAlias(true);
 
-        drawBone(canvas, bonePaint, body.head, body.chest);
-        drawBone(canvas, bonePaint, body.chest, body.hips);
-        drawBone(canvas, bonePaint, body.chest, body.leftShoulder);
-        drawBone(canvas, bonePaint, body.chest, body.rightShoulder);
-        drawBone(canvas, bonePaint, body.leftShoulder, body.leftElbow);
-        drawBone(canvas, bonePaint, body.leftElbow, body.leftHand);
-        drawBone(canvas, bonePaint, body.rightShoulder, body.rightElbow);
-        drawBone(canvas, bonePaint, body.rightElbow, body.rightHand);
-        drawBone(canvas, bonePaint, body.hips, body.leftHip);
-        drawBone(canvas, bonePaint, body.hips, body.rightHip);
-        drawBone(canvas, bonePaint, body.leftHip, body.leftKnee);
-        drawBone(canvas, bonePaint, body.leftKnee, body.leftFoot);
-        drawBone(canvas, bonePaint, body.rightHip, body.rightKnee);
-        drawBone(canvas, bonePaint, body.rightKnee, body.rightFoot);
+        Paint spritePaint = new Paint();
+        spritePaint.setAntiAlias(true);
+        spritePaint.setFilterBitmap(true);
 
-        Paint jointPaint = new Paint();
-        jointPaint.setColor(jointColor);
-        for (PointMass p : body.points) {
-            canvas.drawCircle(p.pos.x, p.pos.y, 10f * 1.4f, jointPaint);
-        }
+        // legs first (drawn behind torso)
+        drawBone(canvas, limbPaint, body.leftHip, body.leftKnee, 20f);
+        drawBone(canvas, limbPaint, body.leftKnee, body.leftFoot, 16f);
+        drawBone(canvas, limbPaint, body.rightHip, body.rightKnee, 20f);
+        drawBone(canvas, limbPaint, body.rightKnee, body.rightFoot, 16f);
+
+        // torso capsule (mostly hidden under kurta, but keeps shape consistent
+        // if the sprite doesn't fully cover, e.g. during odd ragdoll poses)
+        drawBone(canvas, limbPaint, body.chest, body.hips, 34f);
+        drawBone(canvas, limbPaint, body.chest, body.leftShoulder, 22f);
+        drawBone(canvas, limbPaint, body.chest, body.rightShoulder, 22f);
+        drawBone(canvas, limbPaint, body.hips, body.leftHip, 18f);
+        drawBone(canvas, limbPaint, body.hips, body.rightHip, 18f);
+
+        float spineRotation = RagdollRenderer.getSpineRotationDeg(body.chest, body.hips);
+        RagdollRenderer.drawSpriteOnPoint(canvas, dhotiBitmap, body.hips, 55f, spineRotation, spritePaint);
+        RagdollRenderer.drawSpriteOnPoint(canvas, kurtaBitmap, body.chest, 60f, spineRotation, spritePaint);
+
+
+        // garments layered on top of torso/hips
+//        RagdollRenderer.drawSpriteOnPoint(canvas, dhotiBitmap, body.hips, 55f, 0f, spritePaint);
+//        RagdollRenderer.drawSpriteOnPoint(canvas, kurtaBitmap, body.chest, 60f, 0f, spritePaint);
+
+        // arms drawn on top of garments (so hands/forearms aren't hidden under the kurta)
+        drawBone(canvas, limbPaint, body.leftShoulder, body.leftElbow, 16f);
+        drawBone(canvas, limbPaint, body.leftElbow, body.leftHand, 14f);
+        drawBone(canvas, limbPaint, body.rightShoulder, body.rightElbow, 16f);
+        drawBone(canvas, limbPaint, body.rightElbow, body.rightHand, 14f);
+
+        // neck + head
+        drawBone(canvas, limbPaint, body.chest, body.head, 12f);
+        canvas.drawCircle(body.head.pos.x, body.head.pos.y, 24f, limbPaint);
+
+        // face details on top of head
+        RagdollRenderer.drawSpriteOnPoint(canvas, turbanBitmap, body.head, 45f, spineRotation, spritePaint);
+        RagdollRenderer.drawSpriteOnPoint(canvas, moustacheBitmap, body.head, 20f, spineRotation, spritePaint);
+//        Paint torsoPaint = new Paint();
+//        torsoPaint.setColor(clothColor);
+//        torsoPaint.setAntiAlias(true);
+//
+//        Paint limbPaint = new Paint();
+//        limbPaint.setColor(skinColor);
+//        limbPaint.setAntiAlias(true);
+//
+//
+//        // legs first (furthest back)
+//        drawBone(canvas, torsoPaint, body.leftHip, body.leftKnee, 20f);
+//        drawBone(canvas, torsoPaint, body.leftKnee, body.leftFoot, 16f);
+//        drawBone(canvas, torsoPaint, body.rightHip, body.rightKnee, 20f);
+//        drawBone(canvas, torsoPaint, body.rightKnee, body.rightFoot, 16f);
+//
+//        // torso + connectors
+//        drawBone(canvas, torsoPaint, body.chest, body.hips, 34f);
+//        drawBone(canvas, torsoPaint, body.chest, body.leftShoulder, 22f);
+//        drawBone(canvas, torsoPaint, body.chest, body.rightShoulder, 22f);
+//        drawBone(canvas, torsoPaint, body.hips, body.leftHip, 18f);
+//        drawBone(canvas, torsoPaint, body.hips, body.rightHip, 18f);
+//
+//        // arms on top
+//        drawBone(canvas, limbPaint, body.leftShoulder, body.leftElbow, 16f);
+//        drawBone(canvas, limbPaint, body.leftElbow, body.leftHand, 14f);
+//        drawBone(canvas, limbPaint, body.rightShoulder, body.rightElbow, 16f);
+//        drawBone(canvas, limbPaint, body.rightElbow, body.rightHand, 14f);
+//
+//        // neck + head last (frontmost)
+//        drawBone(canvas, limbPaint, body.chest, body.head, 12f);
+//        canvas.drawCircle(body.head.pos.x, body.head.pos.y, 24f, limbPaint);
+        // Torso — thickest segment
+//        drawBone(canvas, torsoPaint, body.chest, body.hips, 34f);
+//
+//        // Arms — medium thickness, skin tone
+//        drawBone(canvas, limbPaint, body.leftShoulder, body.leftElbow, 16f);
+//        drawBone(canvas, limbPaint, body.leftElbow, body.leftHand, 14f);
+//        drawBone(canvas, limbPaint, body.rightShoulder, body.rightElbow, 16f);
+//        drawBone(canvas, limbPaint, body.rightElbow, body.rightHand, 14f);
+//
+//        // Legs — thicker than arms, clothed color (dhoti-ish)
+//        drawBone(canvas, torsoPaint, body.leftHip, body.leftKnee, 20f);
+//        drawBone(canvas, torsoPaint, body.leftKnee, body.leftFoot, 16f);
+//        drawBone(canvas, torsoPaint, body.rightHip, body.rightKnee, 20f);
+//        drawBone(canvas, torsoPaint, body.rightKnee, body.rightFoot, 16f);
+//
+//        // Shoulder/hip connectors — thin, just structural
+//        Paint connectorPaint = new Paint();
+//        connectorPaint.setColor(clothColor);
+//        drawBone(canvas, connectorPaint, body.chest, body.leftShoulder, 22f);
+//        drawBone(canvas, connectorPaint, body.chest, body.rightShoulder, 22f);
+//        drawBone(canvas, connectorPaint, body.hips, body.leftHip, 18f);
+//        drawBone(canvas, connectorPaint, body.hips, body.rightHip, 18f);
+//
+//        // Head — a circle instead of a bone
+//        Paint headPaint = new Paint();
+//        headPaint.setColor(skinColor);
+//        headPaint.setAntiAlias(true);
+//        canvas.drawCircle(body.head.pos.x, body.head.pos.y, 24f, headPaint);
+//
+//        // Neck connector
+//        drawBone(canvas, limbPaint, body.chest, body.head, 12f);
     }
-    private void drawBone(Canvas canvas, Paint paint, PointMass a, PointMass b) {
+//    private void drawRagdoll(Canvas canvas, RagdollBody body, int jointColor) {
+//        Paint bonePaint = new Paint();
+//        bonePaint.setColor(Color.WHITE);
+//        bonePaint.setStrokeWidth(8f);
+//
+//        drawBone(canvas, bonePaint, body.head, body.chest);
+//        drawBone(canvas, bonePaint, body.chest, body.hips);
+//        drawBone(canvas, bonePaint, body.chest, body.leftShoulder);
+//        drawBone(canvas, bonePaint, body.chest, body.rightShoulder);
+//        drawBone(canvas, bonePaint, body.leftShoulder, body.leftElbow);
+//        drawBone(canvas, bonePaint, body.leftElbow, body.leftHand);
+//        drawBone(canvas, bonePaint, body.rightShoulder, body.rightElbow);
+//        drawBone(canvas, bonePaint, body.rightElbow, body.rightHand);
+//        drawBone(canvas, bonePaint, body.hips, body.leftHip);
+//        drawBone(canvas, bonePaint, body.hips, body.rightHip);
+//        drawBone(canvas, bonePaint, body.leftHip, body.leftKnee);
+//        drawBone(canvas, bonePaint, body.leftKnee, body.leftFoot);
+//        drawBone(canvas, bonePaint, body.rightHip, body.rightKnee);
+//        drawBone(canvas, bonePaint, body.rightKnee, body.rightFoot);
+//
+//        Paint jointPaint = new Paint();
+//        jointPaint.setColor(jointColor);
+//        for (PointMass p : body.points) {
+//            canvas.drawCircle(p.pos.x, p.pos.y, 10f * 1.4f, jointPaint);
+//        }
+//    }
+    private void drawBone(Canvas canvas, Paint paint, PointMass a, PointMass b, float thickness) {
+        // Draw as a rounded-rectangle "capsule" instead of a thin line —
+        // reads as a limb/body segment rather than a wireframe stick
+        paint.setStrokeWidth(thickness);
+        paint.setStrokeCap(Paint.Cap.ROUND); // rounded ends = joints look like actual joints, not sharp corners
         canvas.drawLine(a.pos.x, a.pos.y, b.pos.x, b.pos.y, paint);
     }
 //    canvas.drawColor(Color.rgb(139, 69, 19));
