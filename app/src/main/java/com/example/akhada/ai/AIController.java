@@ -2,6 +2,7 @@ package com.example.akhada.ai;
 
 import com.example.akhada.combat.CombatSystem;
 import com.example.akhada.entity.components.HealthComponent;
+import com.example.akhada.entity.components.StaminaComponent;
 import com.example.akhada.physics.MovementController;
 import com.example.akhada.physics.PointMass;
 import com.example.akhada.physics.RagdollBody;
@@ -28,6 +29,8 @@ public class AIController {
     private static final float RETREAT_DURATION = 0.4f;
     private static final float AI_PUNCH_FORCE = 18f;
     private float currentMoveDirection = 0f;
+    private final StaminaComponent selfStamina;
+    private static final float PUNCH_STAMINA_COST = 30f;
 
     public interface OnHitLandedListener {
         void onHitLanded(float impulseMagnitude);
@@ -35,12 +38,13 @@ public class AIController {
     private OnHitLandedListener hitListener;
 
 
-    public AIController(RagdollBody self, RagdollBody target, MovementController mover, HealthComponent targetHealth, float scale) {
+    public AIController(RagdollBody self, RagdollBody target, MovementController mover, HealthComponent targetHealth,StaminaComponent selfStamina, float scale) {
         this.self = self;
         this.target = target;
         this.mover = mover;
         this.targetHealth = targetHealth;
         this.scale = scale;
+        this.selfStamina = selfStamina;
     }
 
     public void setOnHitLandedListener(OnHitLandedListener listener) {
@@ -132,6 +136,9 @@ public class AIController {
     }
 
     private void throwPunch() {
+        float punchCost = 30f;
+        if (!selfStamina.canAttack(punchCost)) return; // too tired, skip this swing
+        selfStamina.spend(punchCost);
         PointMass[] targetPoints = target.points.toArray(new PointMass[0]);
         float hitRadius = BASE_HIT_RADIUS * scale;
 

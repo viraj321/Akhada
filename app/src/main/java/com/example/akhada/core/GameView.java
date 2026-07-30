@@ -1,5 +1,7 @@
 package com.example.akhada.core;
 
+import static androidx.core.math.MathUtils.clamp;
+
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -13,9 +15,11 @@ import android.view.SurfaceView;
 
 import com.example.akhada.R;
 import com.example.akhada.ai.AIController;
+import com.example.akhada.audio.SoundManager;
 import com.example.akhada.combat.CombatSystem;
 import com.example.akhada.entity.components.FighterState;
 import com.example.akhada.entity.components.HealthComponent;
+import com.example.akhada.entity.components.StaminaComponent;
 import com.example.akhada.physics.AngleConstraint;
 import com.example.akhada.physics.BalanceController;
 import com.example.akhada.physics.Constraint;
@@ -54,9 +58,15 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
     private float ragdollTimerA = 0f;
     private ParallaxBackground background = new ParallaxBackground();
     private Bitmap kurtaBitmap, dhotiBitmap, turbanBitmap, moustacheBitmap;
+    private SoundManager soundManager;
+    private StaminaComponent staminaA, staminaB;
+
+    private static final int WORLD_WIDTH = 2400; // wider than any single screen
+    private float cameraX = 0f;
     public GameView(Context context) {
         super(context);
         getHolder().addCallback(this);
+        soundManager = new SoundManager(context);
         kurtaBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.kurta_shirt);
         dhotiBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.dhoti_skirt);
         turbanBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.turban);
@@ -74,17 +84,23 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
 
         healthA = new HealthComponent(100f);
         healthB = new HealthComponent(100f);
+        staminaA = new StaminaComponent(100f, 25f); // full stamina = 4 punches before empty, refills over ~4s
+        staminaB = new StaminaComponent(100f, 25f);
         float groundY = 800f; // will be reset properly in surfaceChanged
         balanceA = new BalanceController(fighterA, groundY, 115f);
         balanceB = new BalanceController(fighterB, groundY, 115f);
         //moverA = new MovementController(fighterA);
         moverA = new MovementController(fighterA);
         moverB = new MovementController(fighterB);
-        aiB = new AIController(fighterB, fighterA, moverB, healthA, scale);
+        aiB = new AIController(fighterB, fighterA, moverB, healthA, staminaB, scale);
+       // aiB = new AIController(fighterB, fighterA, moverB, healthA, scale);
 
         aiB.setOnHitLandedListener(impulseMagnitude -> {
+            boolean isKnockdown = impulseMagnitude >= CombatSystem.KNOCKDOWN_THRESHOLD;
+            soundManager.playHit(isKnockdown);
             if (impulseMagnitude >= CombatSystem.KNOCKDOWN_THRESHOLD) {
                 stateA = FighterState.RAGDOLL;
+                soundManager.playKnockdown();
             }
         });
 //        ragdoll = new RagdollBody(300, 150); // drops from up high, nothing pinned = full ragdoll fall
@@ -135,66 +151,195 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
             } catch (InterruptedException ignored) {}
         }
     }
+    private boolean gameOver = false;
+    private String winnerText = "";
+    private RectF restartButtonRect;
 
     @Override public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) {
-        world.setBounds(0, 0, w, h);
-        balanceA = new BalanceController(fighterA, h, 90f);
-        balanceB = new BalanceController(fighterB, h, 90f);
+        world.setBounds(0, 0, WORLD_WIDTH, h);
+        balanceA = new BalanceController(fighterA, h, 115f);
+        balanceB = new BalanceController(fighterB, h, 115f);
         leftButtonRect  = new RectF(40, h - 180, 160, h - 60);
         rightButtonRect = new RectF(180, h - 180, 300, h - 60);
+        restartButtonRect = new RectF(w / 2f - 100, h / 2f + 40, w / 2f + 100, h / 2f + 100);
     }
     private float retractTimerA = 0f;
     private static final float RETRACT_DURATION = 0.3f;
     private static final float RETRACT_STRENGTH = 0.15f;
+    private long lastTapTimeLeft = 0, lastTapTimeRight = 0;
+    private static final long DOUBLE_TAP_WINDOW_MS = 300;
+    private float manualMoveDirection = 0f;
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        int action = event.getActionMasked();
-
-        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
-            float x = event.getX();
-            float y = event.getY();
-
-            if (leftButtonRect.contains(x, y)) {
-                inputDirection = -1f;
-            } else if (rightButtonRect.contains(x, y)) {
-                inputDirection = 1f;
-            } else if (action == MotionEvent.ACTION_DOWN) {
-                // NEW: guard — no punching while ragdolled or dead
-                if (stateA == FighterState.STANDING && !healthA.isDead() && !healthB.isDead()) {
-                    float scale = 1.4f;
-                    PointMass[] targetPoints = fighterB.points.toArray(new PointMass[0]);
-
-                    fighterA.rightHand.collisionImmune = true;
-                    CombatSystem.HitResult result = CombatSystem.tryPunch(fighterA.rightHand, targetPoints, 60f * scale, 8f);
-                    if (result.landed) {
-                        healthB.applyDamage(result.damage);
-                        aiB.onHitReceived();
-                        if (result.impulseMagnitude >= CombatSystem.KNOCKDOWN_THRESHOLD) {
-                            stateB = FighterState.RAGDOLL;
-                        }
-                    }
-                    retractTimerA = RETRACT_DURATION;
-                }
+        if (gameOver) {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN
+                    && restartButtonRect.contains(event.getX(), event.getY())) {
+                restartFight();
             }
-        } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-            inputDirection = 0f;
+            return true;
         }
 
-        moverA.setDirection(inputDirection);
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN
+                && stateA == FighterState.STANDING && !healthA.isDead() && !healthB.isDead()) {
+
+            float x = event.getX();
+            boolean isLeftSide = x < getWidth() / 2f;
+            long now = System.currentTimeMillis();
+
+            if (isLeftSide) {
+                boolean isDoubleTap = (now - lastTapTimeLeft) < DOUBLE_TAP_WINDOW_MS;
+                lastTapTimeLeft = now;
+                if (isDoubleTap) {
+                    manualMoveDirection = (manualMoveDirection == -1f) ? 0f : -1f; // toggle walk left
+                } else {
+                    tryPunchWithHand(fighterA.leftHand);
+                }
+            } else {
+                boolean isDoubleTap = (now - lastTapTimeRight) < DOUBLE_TAP_WINDOW_MS;
+                lastTapTimeRight = now;
+                if (isDoubleTap) {
+                    manualMoveDirection = (manualMoveDirection == 1f) ? 0f : 1f; // toggle walk right
+                } else {
+                    tryPunchWithHand(fighterA.rightHand);
+                }
+            }
+        }
+
         return true;
+//        if (gameOver) {
+//            if (event.getActionMasked() == MotionEvent.ACTION_DOWN
+//                    && restartButtonRect.contains(event.getX(), event.getY())) {
+//                restartFight();
+//            }
+//            return true;
+//        }
+//
+//        int action = event.getActionMasked();
+//
+//        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
+//            float x = event.getX();
+//            float y = event.getY();
+//
+//            if (leftButtonRect.contains(x, y)) {
+//                inputDirection = -1f;
+//            } else if (rightButtonRect.contains(x, y)) {
+//                inputDirection = 1f;
+//            } else if (action == MotionEvent.ACTION_DOWN) {
+//                // NEW: guard — no punching while ragdolled or dead
+//                float punchCost = 30f;
+//                if (stateA == FighterState.STANDING && !healthA.isDead() && !healthB.isDead() && staminaA.canAttack(punchCost)) {
+//                    staminaA.spend(punchCost);
+//                    float scale = 1.4f;
+//                    PointMass[] targetPoints = fighterB.points.toArray(new PointMass[0]);
+//
+//                    fighterA.rightHand.collisionImmune = true;
+//                    CombatSystem.HitResult result = CombatSystem.tryPunch(fighterA.rightHand, targetPoints, 60f * scale, 8f);
+//                    if (result.landed) {
+//                        healthB.applyDamage(result.damage);
+//                        aiB.onHitReceived();
+//                        boolean isKnockdown = result.impulseMagnitude >= CombatSystem.KNOCKDOWN_THRESHOLD;
+//                        soundManager.playHit(isKnockdown);
+//                        if (result.impulseMagnitude >= CombatSystem.KNOCKDOWN_THRESHOLD) {
+//                            stateB = FighterState.RAGDOLL;
+//                            soundManager.playKnockdown();
+//                        }
+//                    }
+//                    retractTimerA = RETRACT_DURATION;
+//                }
+//            }
+//        } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+//            inputDirection = 0f;
+//        }
+//
+//        moverA.setDirection(inputDirection);
+//        return true;
+    }
+    private void tryPunchWithHand(PointMass hand) {
+        float punchCost = 30f;
+        if (!staminaA.canAttack(punchCost)) return;
+
+        staminaA.spend(punchCost);
+        hand.collisionImmune = true;
+        retractTimerA = RETRACT_DURATION;
+        retractingHandA = hand; // NEW field — track which hand is mid-retract
+
+        PointMass[] targetPoints = fighterB.points.toArray(new PointMass[0]);
+        float scale = 1.4f;
+        CombatSystem.HitResult result = CombatSystem.tryPunch(hand, targetPoints, 60f * scale, 18f);
+
+        if (result.landed) {
+            healthB.applyDamage(result.damage);
+            aiB.onHitReceived();
+            boolean isKnockdown = result.impulseMagnitude >= CombatSystem.KNOCKDOWN_THRESHOLD;
+            soundManager.playHit(isKnockdown);
+            if (isKnockdown) {
+                stateB = FighterState.RAGDOLL;
+                soundManager.playKnockdown();
+            }
+        }
+    }
+    private PointMass retractingHandA;
+
+
+    private void restartFight() {
+        float scale = 1.4f;
+        fighterA = new RagdollBody(250, 150, 0, scale);
+        fighterB = new RagdollBody(450, 150, 1, scale);
+        world = new PhysicsWorld();
+        world.pointRadius = 12f * scale;
+        fighterA.addTo(world);
+        fighterB.addTo(world);
+        world.setBounds(0, 0, getWidth(), getHeight());
+
+        healthA = new HealthComponent(100f);
+        healthB = new HealthComponent(100f);
+        balanceA = new BalanceController(fighterA, getHeight(), 115f);
+        balanceB = new BalanceController(fighterB, getHeight(), 115f);
+        poseA = new PoseController(fighterA);
+        poseB = new PoseController(fighterB);
+        moverA = new MovementController(fighterA);
+        moverB = new MovementController(fighterB);
+        aiB = new AIController(fighterB, fighterA, moverB, healthA, staminaB, scale);
+       // aiB = new AIController(fighterB, fighterA, moverB, healthA, scale);
+        aiB.setOnHitLandedListener(impulseMagnitude -> {
+            boolean isKnockdown = impulseMagnitude >= CombatSystem.KNOCKDOWN_THRESHOLD;
+            soundManager.playHit(isKnockdown);
+            if (isKnockdown) {
+                stateA = FighterState.RAGDOLL;
+                soundManager.playKnockdown();
+            }
+        });
+
+        stateA = FighterState.STANDING;
+        stateB = FighterState.STANDING;
+        startupTimer = 0f;
+        gameOver = false;
     }
     private void retractHandA() {
         if (retractTimerA <= 0f) {
-            fighterA.rightHand.collisionImmune = false;
+            if (retractingHandA != null) retractingHandA.collisionImmune = false;
             return;
         }
         retractTimerA -= 1f / 60f;
+        if (retractingHandA == null) return;
 
-        Vec2 toShoulder = fighterA.rightShoulder.pos.subtract(fighterA.rightHand.pos);
+        Vec2 toShoulder = (retractingHandA == fighterA.leftHand ? fighterA.leftShoulder : fighterA.rightShoulder).pos.subtract(retractingHandA.pos);
         Vec2 pull = toShoulder.scale(RETRACT_STRENGTH);
-        fighterA.rightHand.pos = fighterA.rightHand.pos.add(pull);
-        fighterA.rightHand.prevPos = fighterA.rightHand.prevPos.add(pull.scale(0.3f));
+        retractingHandA.pos = retractingHandA.pos.add(pull);
+        retractingHandA.prevPos = retractingHandA.prevPos.add(pull.scale(0.3f));
     }
+//    private void retractHandA() {
+//        if (retractTimerA <= 0f) {
+//            fighterA.rightHand.collisionImmune = false;
+//            return;
+//        }
+//        retractTimerA -= 1f / 60f;
+//
+//        Vec2 toShoulder = fighterA.rightShoulder.pos.subtract(fighterA.rightHand.pos);
+//        Vec2 pull = toShoulder.scale(RETRACT_STRENGTH);
+//        fighterA.rightHand.pos = fighterA.rightHand.pos.add(pull);
+//        fighterA.rightHand.prevPos = fighterA.rightHand.prevPos.add(pull.scale(0.3f));
+//    }
 //        int action = event.getActionMasked();
 //
 //        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
@@ -265,6 +410,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
     private float startupTimer = 0f;
     private static final float BALANCE_STARTUP_DELAY = 0.6f;
     public void update() {
+        if (gameOver) return;
 
         float dt = 1f / 60f;
         startupTimer += dt;
@@ -275,11 +421,12 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
             if (ragdollTimerB >= RECOVERY_TIME && !healthB.isDead()) {
                 stateB = FighterState.STANDING;
                 ragdollTimerB = 0f;
+                balanceB.beginGetUpBoost();
 
                 // IMPORTANT: re-anchor hips near current position before balance
                 // kicks back in — otherwise it'll try to snap violently from
                 // wherever it landed back to standing height in one frame
-                recenterBalanceTarget(balanceB, fighterB);
+                //recenterBalanceTarget(balanceB, fighterB);
             }
         } else {
             ragdollTimerB = 0f;
@@ -290,32 +437,67 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
             if (ragdollTimerA >= RECOVERY_TIME && !healthA.isDead()) {
                 stateA = FighterState.STANDING;
                 ragdollTimerA = 0f;
+                balanceA.beginGetUpBoost();
             }
         } else {
             ragdollTimerA = 0f;
         }
+        balanceA.setMoveDirection(manualMoveDirection);
+        balanceB.setMoveDirection(aiB.getCurrentMoveDirection());
 
 
         java.util.List<BalanceController> activeBalance = new java.util.ArrayList<>();
         boolean balanceReady = startupTimer >= BALANCE_STARTUP_DELAY;
-        if (stateA == FighterState.STANDING && !healthA.isDead()){ activeBalance.add(balanceA);
-            //poseA.applyIdleStance();
-            poseA.applyWalkCycle(inputDirection);
+        if (balanceReady && stateA == FighterState.STANDING && !healthA.isDead()) activeBalance.add(balanceA);
+        if (balanceReady && stateB == FighterState.STANDING && !healthB.isDead()) activeBalance.add(balanceB);
 
-        }
+//        java.util.List<BalanceController> activeBalance = new java.util.ArrayList<>();
+//        boolean balanceReady = startupTimer >= BALANCE_STARTUP_DELAY;
+//        if (balanceReady && stateA == FighterState.STANDING && !healthA.isDead()) {
+//            balanceA.applyBalance(); // pass current direction in
+//            poseA.applyWalkCycle(inputDirection);
+//        }
+//        if (stateA == FighterState.STANDING && !healthA.isDead()){
+//            activeBalance.add(balanceA);
+//            //poseA.applyIdleStance();
+//            poseA.applyWalkCycle(inputDirection);
+//
+//        }
         if (stateB == FighterState.STANDING && !healthB.isDead()) {
             aiB.update(1f / 60f);
         }
-        if (stateB == FighterState.STANDING && !healthB.isDead()) {activeBalance.add(balanceB);
-            //poseB.applyIdleStance();
-            poseB.applyWalkCycle(aiB.getCurrentMoveDirection());
-        }
+//        if (stateB == FighterState.STANDING && !healthB.isDead()) {
+//            activeBalance.add(balanceB);
+//            //poseB.applyIdleStance();
+//            poseB.applyWalkCycle(aiB.getCurrentMoveDirection());
+//        }
+//        if (balanceReady && stateB == FighterState.STANDING && !healthB.isDead()) {
+//            balanceB.applyBalance();
+//            poseB.applyWalkCycle(aiB.getCurrentMoveDirection());
+//        }
 
+//        java.util.List<MovementController> activeMovement = new java.util.ArrayList<>();
+//        if (stateA == FighterState.STANDING && !healthA.isDead()) activeMovement.add(moverA);
+//        if (stateB == FighterState.STANDING && !healthB.isDead()) activeMovement.add(moverB);
         java.util.List<MovementController> activeMovement = new java.util.ArrayList<>();
         if (stateA == FighterState.STANDING && !healthA.isDead()) activeMovement.add(moverA);
         if (stateB == FighterState.STANDING && !healthB.isDead()) activeMovement.add(moverB);
 
+
         world.step(1f / 60f, activeBalance, activeMovement);
+        poseA.applyWalkCycle(manualMoveDirection);
+        poseB.applyWalkCycle(aiB.getCurrentMoveDirection());
+        if (healthA.isDead() && !gameOver) {
+            gameOver = true;
+            winnerText = "OPPONENT WINS";
+        } else if (healthB.isDead() && !gameOver) {
+            gameOver = true;
+            winnerText = "YOU WIN";
+        }
+        float targetCameraX = fighterA.hips.pos.x - getWidth() / 2f;
+        cameraX = clamp(targetCameraX, 0f, WORLD_WIDTH - getWidth());
+        staminaA.update(dt);
+        staminaB.update(dt);
 
 //        java.util.List<BalanceController> active = new java.util.ArrayList<>();
 //        if (stateA == FighterState.STANDING) active.add(balanceA);
@@ -345,19 +527,29 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
 
    // private ParallaxBackground background = new ParallaxBackground();
 public void render(Canvas canvas) {
-    background.draw(canvas, getWidth(), getHeight());
-
+    canvas.save();
+    canvas.translate(-cameraX, 0);
+    background.draw(canvas, WORLD_WIDTH, getHeight());
+    drawNameTag(canvas, fighterA.head, "YOU", Color.rgb(60, 200, 90));
+    drawNameTag(canvas, fighterB.head, "RIVAL", Color.rgb(220, 60, 60));
     drawRagdoll(canvas, fighterA, Color.rgb(198, 134, 89));
     drawRagdoll(canvas, fighterB, Color.rgb(198, 134, 89));
+    canvas.restore();
 
     drawHealthBar(canvas, healthA, 50, 50, Color.rgb(255, 153, 51));
     drawHealthBar(canvas, healthB, getWidth() - 350, 50, Color.WHITE);
+    drawStaminaBar(canvas, staminaA, 50, 85, Color.rgb(80, 180, 255));
+    drawStaminaBar(canvas, staminaB, getWidth() - 350, 85, Color.rgb(80, 180, 255));
 
     // movement buttons (from earlier input step)
     Paint buttonPaint = new Paint();
     buttonPaint.setColor(Color.argb(120, 255, 255, 255));
     canvas.drawRoundRect(leftButtonRect, 20f, 20f, buttonPaint);
     canvas.drawRoundRect(rightButtonRect, 20f, 20f, buttonPaint);
+
+    if (gameOver) {
+        drawGameOverOverlay(canvas);
+    }
 //    background.draw(canvas, getWidth(), getHeight());
 ////    canvas.drawColor(Color.rgb(139, 69, 19));
 //    drawRagdoll(canvas, fighterA, Color.rgb(198, 134, 89), Color.rgb(255, 153, 51));  // saffron dhoti
@@ -400,6 +592,50 @@ public void render(Canvas canvas) {
 //        canvas.drawCircle(p.pos.x, p.pos.y, 10f, jointPaint);
 //    }
 }
+    private float clamp(float v, float min, float max) {
+        return Math.max(min, Math.min(max, v));
+    }
+    private void drawNameTag(Canvas canvas, PointMass head, String name, int color) {
+        Paint tagPaint = new Paint();
+        tagPaint.setColor(color);
+        tagPaint.setTextSize(28f);
+        tagPaint.setTextAlign(Paint.Align.CENTER);
+        tagPaint.setAntiAlias(true);
+        tagPaint.setFakeBoldText(true);
+        canvas.drawText(name, head.pos.x, head.pos.y - 50f, tagPaint);
+    }
+    private void drawStaminaBar(Canvas canvas, StaminaComponent stamina, float x, float y, int color) {
+        Paint bgPaint = new Paint();
+        bgPaint.setColor(Color.rgb(40, 40, 40));
+        canvas.drawRect(x, y, x + 300, y + 12, bgPaint);
+
+        Paint fgPaint = new Paint();
+        fgPaint.setColor(color);
+        canvas.drawRect(x, y, x + 300 * stamina.getStaminaFraction(), y + 12, fgPaint);
+    }
+
+    private void drawGameOverOverlay(Canvas canvas) {
+        Paint dimPaint = new Paint();
+        dimPaint.setColor(Color.argb(160, 0, 0, 0));
+        canvas.drawRect(0, 0, getWidth(), getHeight(), dimPaint);
+
+        Paint textPaint = new Paint();
+        textPaint.setColor(Color.WHITE);
+        textPaint.setTextSize(64f);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+        textPaint.setAntiAlias(true);
+        canvas.drawText(winnerText, getWidth() / 2f, getHeight() / 2f - 40, textPaint);
+
+        Paint buttonPaint = new Paint();
+        buttonPaint.setColor(Color.rgb(255, 153, 51));
+        canvas.drawRoundRect(restartButtonRect, 16f, 16f, buttonPaint);
+
+        Paint buttonTextPaint = new Paint();
+        buttonTextPaint.setColor(Color.BLACK);
+        buttonTextPaint.setTextSize(32f);
+        buttonTextPaint.setTextAlign(Paint.Align.CENTER);
+        canvas.drawText("RESTART", getWidth() / 2f, restartButtonRect.centerY() + 12f, buttonTextPaint);
+    }
     private void drawHealthBar(Canvas canvas, HealthComponent health, float x, float y, int color) {
         Paint bgPaint = new Paint();
         bgPaint.setColor(Color.DKGRAY);
@@ -585,6 +821,7 @@ public void render(Canvas canvas) {
 //    canvas.drawCircle(testPoint.pos.x, testPoint.pos.y, 20f, paint);
 
 
-    public void pause() { if (gameLoop != null) surfaceDestroyed(getHolder()); }
+    public void pause() { if (gameLoop != null) surfaceDestroyed(getHolder());
+        soundManager.release();}
     public void resume() { /* re-created in surfaceCreated automatically */ }
 }
