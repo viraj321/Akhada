@@ -7,9 +7,39 @@ public class PoseController {
     private static final float MAX_PULL = 1.2f;
     private float walkPhase = 0f; // 0 to 1, loops
     private static final float WALK_CYCLE_SPEED = 3.5f;
+    private float punchTimerLeft = 0f, punchTimerRight = 0f;
+    private static final float PUNCH_EXTEND_DURATION = 0.15f; // quick snap-out
+    private static final float PUNCH_STRENGTH = 0.35f;
 
     public PoseController(RagdollBody body) {
         this.body = body;
+    }
+    public void triggerPunch(boolean isRightHand) {
+        if (isRightHand) punchTimerRight = PUNCH_EXTEND_DURATION;
+        else punchTimerLeft = PUNCH_EXTEND_DURATION;
+    }
+    public void applyPunchExtension(RagdollBody body) {
+        if (punchTimerRight > 0f) {
+            punchTimerRight -= 1f / 60f;
+            // pull hand/elbow out in front of the shoulder, roughly horizontal —
+            // adjust the offset X sign based on which way the fighter faces
+            pullTowardStrong(body.rightElbow, body.rightShoulder, new Vec2(35, 5));
+            pullTowardStrong(body.rightHand, body.rightShoulder, new Vec2(65, 5));
+        }
+        if (punchTimerLeft > 0f) {
+            punchTimerLeft -= 1f / 60f;
+            pullTowardStrong(body.leftElbow, body.leftShoulder, new Vec2(-35, 5));
+            pullTowardStrong(body.leftHand, body.leftShoulder, new Vec2(-65, 5));
+        }
+    }
+    private void pullTowardStrong(PointMass joint, PointMass anchor, Vec2 offsetFromAnchor) {
+        Vec2 targetPos = anchor.pos.add(offsetFromAnchor);
+        Vec2 error = targetPos.subtract(joint.pos);
+        Vec2 correction = new Vec2(error.x * PUNCH_STRENGTH, error.y * PUNCH_STRENGTH);
+        if (!joint.pinned) {
+            joint.pos = joint.pos.add(correction);
+            joint.prevPos = joint.prevPos.add(correction.scale(0.5f));
+        }
     }
 
     // Pulls a joint toward a target position relative to an anchor

@@ -61,7 +61,9 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
     private SoundManager soundManager;
     private StaminaComponent staminaA, staminaB;
 
-    private static final int WORLD_WIDTH = 2400; // wider than any single screen
+    private static final int WORLD_WIDTH = 2400;
+    private int worldWidth = 3000;
+    // wider than any single screen
     private float cameraX = 0f;
     public GameView(Context context) {
         super(context);
@@ -156,7 +158,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
     private RectF restartButtonRect;
 
     @Override public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) {
-        world.setBounds(0, 0, WORLD_WIDTH, h);
+        worldWidth = (int)(w * 2.5f);
+        world.setBounds(0, 0, worldWidth, h);
         balanceA = new BalanceController(fighterA, h, 115f);
         balanceB = new BalanceController(fighterB, h, 115f);
         leftButtonRect  = new RectF(40, h - 180, 160, h - 60);
@@ -259,6 +262,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
         if (!staminaA.canAttack(punchCost)) return;
 
         staminaA.spend(punchCost);
+        poseA.triggerPunch(hand == fighterA.rightHand);
         hand.collisionImmune = true;
         retractTimerA = RETRACT_DURATION;
         retractingHandA = hand; // NEW field — track which hand is mid-retract
@@ -487,6 +491,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
         world.step(1f / 60f, activeBalance, activeMovement);
         poseA.applyWalkCycle(manualMoveDirection);
         poseB.applyWalkCycle(aiB.getCurrentMoveDirection());
+        poseA.applyPunchExtension(fighterA);
+        poseB.applyPunchExtension(fighterB);
         if (healthA.isDead() && !gameOver) {
             gameOver = true;
             winnerText = "OPPONENT WINS";
@@ -495,7 +501,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
             winnerText = "YOU WIN";
         }
         float targetCameraX = fighterA.hips.pos.x - getWidth() / 2f;
-        cameraX = clamp(targetCameraX, 0f, WORLD_WIDTH - getWidth());
+        cameraX = clamp(targetCameraX, 0f, worldWidth - getWidth());
         staminaA.update(dt);
         staminaB.update(dt);
 
@@ -529,12 +535,18 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback {
 public void render(Canvas canvas) {
     canvas.save();
     canvas.translate(-cameraX, 0);
-    background.draw(canvas, WORLD_WIDTH, getHeight());
+    background.draw(canvas, worldWidth, getHeight());
     drawNameTag(canvas, fighterA.head, "YOU", Color.rgb(60, 200, 90));
     drawNameTag(canvas, fighterB.head, "RIVAL", Color.rgb(220, 60, 60));
     drawRagdoll(canvas, fighterA, Color.rgb(198, 134, 89));
     drawRagdoll(canvas, fighterB, Color.rgb(198, 134, 89));
     canvas.restore();
+
+
+//    Paint debugPaint = new Paint();
+//    debugPaint.setColor(Color.RED);
+//    debugPaint.setTextSize(28f);
+//    canvas.drawText("cameraX=" + (int)cameraX + " hipsX=" + (int)fighterA.hips.pos.x + " screenW=" + getWidth(), 20, getHeight() - 20, debugPaint);
 
     drawHealthBar(canvas, healthA, 50, 50, Color.rgb(255, 153, 51));
     drawHealthBar(canvas, healthB, getWidth() - 350, 50, Color.WHITE);

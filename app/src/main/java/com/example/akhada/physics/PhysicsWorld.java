@@ -41,6 +41,7 @@ public class PhysicsWorld {
             p.integrate(dt, gravity);
         }
 
+
         for (int i = 0; i < constraintIterations; i++) {
             for (Constraint c : constraints) {
                 c.satisfy();
@@ -92,6 +93,9 @@ public class PhysicsWorld {
         for (PointMass p : points) {
             p.integrate(dt, gravity);
         }
+        for (MovementController mc : activeMovers) {
+            mc.applyMovement();
+        }
 
         for (int i = 0; i < constraintIterations; i++) {
             for (Constraint c : constraints) {
@@ -107,7 +111,7 @@ public class PhysicsWorld {
             for (BalanceController bc : activeBalancers) {
                 bc.applyBalance();
             }
-            for (MovementController mc : activeMovers) mc.applyMovement();
+           // for (MovementController mc : activeMovers) mc.applyMovement();
 
             for (PointMass p : points) {
                 p.constrainToBounds(minX, minY, maxX, maxY, 0.2f);

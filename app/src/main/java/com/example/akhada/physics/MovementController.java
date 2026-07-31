@@ -2,7 +2,7 @@ package com.example.akhada.physics;
 
 public class MovementController {
     private final RagdollBody body;
-    private float moveSpeed = 4f; // pixels per fixed step — tune to taste
+    private float moveSpeed = 2.5f; // pixels per fixed step — tune to taste
     private float currentDirection = 0f; // -1 = left, 0 = still, +1 = right
 
     public MovementController(RagdollBody body) {
